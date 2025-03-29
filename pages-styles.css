@@ -391,7 +391,7 @@
   /* Profile card styling - modern version to match React */
   .profile-card {
     width: 100%;
-    max-width: 20rem;
+    /* max-width: 20rem; */
     margin-left: auto;
     margin-right: auto;
     border-radius: 1.5rem;
