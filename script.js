@@ -1,3 +1,77 @@
+// Service Worker Registration and Management
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      // Register the service worker
+      const registration = await navigator.serviceWorker.register('./sw.js', {
+        scope: './'
+      });
+
+      console.log('ServiceWorker registered successfully. Scope:', registration.scope);
+
+      // Handle updates
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed') {
+            if (navigator.serviceWorker.controller) {
+              const notification = document.createElement('div');
+              notification.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: var(--brand-500);
+                color: white;
+                padding: 16px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+              `;
+              notification.innerHTML = `
+                New content is available! 
+                <button style="background: white; color: var(--brand-500); border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                  Refresh
+                </button>
+              `;
+
+              document.body.appendChild(notification);
+
+              notification.querySelector('button').addEventListener('click', () => {
+                newWorker.postMessage({ type: 'skipWaiting' });
+                notification.remove();
+              });
+            }
+          }
+        });
+      });
+
+      // Handle controller change (when skipWaiting is called)
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing && !navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
+
+    } catch (error) {
+      console.error('ServiceWorker registration failed:', error);
+    }
+  });
+
+  // Handle service worker messages
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data && event.data.type === 'reload') {
+      window.location.reload();
+    }
+  });
+}
+
 // DOM Elements
 const navbar = document.getElementById('navbar');
 const mobileMenu = document.getElementById('mobile-menu');
@@ -8,6 +82,11 @@ const mobileThemeToggle = document.getElementById('mobile-theme-toggle');
 const themeIcon = document.getElementById('theme-icon');
 const mobileThemeIcon = document.getElementById('mobile-theme-icon');
 const scrollToTopBtn = document.getElementById('scrollToTop');
+
+// --- DEBUG LOGGING ---
+console.log('Selected themeIcon:', themeIcon);
+console.log('Selected mobileThemeIcon:', mobileThemeIcon);
+// --- END DEBUG LOGGING ---
 
 // Check for saved theme preference or use browser preference
 const getTheme = () => {
@@ -20,17 +99,54 @@ const getTheme = () => {
 
 // Apply theme
 const applyTheme = (theme) => {
+  // --- DEBUG LOGGING ---
+  console.log(`Applying theme: ${theme}`);
+  // --- END DEBUG LOGGING ---
   document.documentElement.classList.toggle('dark', theme === 'dark');
   localStorage.setItem('theme', theme);
-  
-  // Update icons
+
   const isDark = theme === 'dark';
-  themeIcon.setAttribute('name', isDark ? 'sun' : 'moon');
-  mobileThemeIcon.setAttribute('name', isDark ? 'sun' : 'moon');
+  const iconName = isDark ? 'sun' : 'moon';
+  // --- DEBUG LOGGING ---
+  console.log(`Setting icon to: ${iconName}`);
+  // --- END DEBUG LOGGING ---
+
+  // Check if lucide and the specific icon generation function exist
+  if (typeof lucide !== 'undefined' && lucide.icons && lucide.icons[iconName] && typeof lucide.icons[iconName].toSvg === 'function') {
+    try {
+      // Generate the SVG string for the icon
+      const iconSvg = lucide.icons[iconName].toSvg(); // Use default options
+
+      // Update the innerHTML directly, replacing the old SVG
+      if (themeIcon) {
+        themeIcon.innerHTML = iconSvg;
+      }
+      if (mobileThemeIcon) {
+        mobileThemeIcon.innerHTML = iconSvg;
+      }
+    } catch (error) {
+      console.error(`Error generating or setting Lucide icon SVG for '${iconName}':`, error);
+      // Fallback: attempt attribute setting + createIcons as a last resort
+      if (themeIcon) themeIcon.setAttribute('data-lucide', iconName);
+      if (mobileThemeIcon) mobileThemeIcon.setAttribute('data-lucide', iconName);
+      createIcons();
+    }
+  } else {
+    console.warn(`Lucide library or icon '${iconName}' not found, or toSvg() method missing. Falling back to attribute update.`);
+    // Fallback: attempt attribute setting + createIcons
+    if (themeIcon) themeIcon.setAttribute('data-lucide', iconName);
+    if (mobileThemeIcon) mobileThemeIcon.setAttribute('data-lucide', iconName);
+    createIcons();
+  }
+  // Note: createIcons() is only called in the fallback scenarios now for theme icons.
+  // It's still called on initial load in DOMContentLoaded for all other icons.
 };
 
 // Toggle theme
 const toggleTheme = () => {
+  // --- DEBUG LOGGING ---
+  console.log('toggleTheme function called!');
+  // --- END DEBUG LOGGING ---
   const currentTheme = localStorage.getItem('theme') || 'light';
   const newTheme = currentTheme === 'light' ? 'dark' : 'light';
   applyTheme(newTheme);
@@ -55,7 +171,7 @@ const handleScroll = () => {
   } else {
     navbar.classList.remove('scrolled');
   }
-  
+
   // Show/hide scroll to top button
   if (window.scrollY > 300) {
     scrollToTopBtn.classList.add('show');
@@ -87,7 +203,7 @@ const setupScrollAnimation = () => {
     rootMargin: '0px',
     threshold: 0.1
   };
-  
+
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
@@ -96,7 +212,7 @@ const setupScrollAnimation = () => {
       }
     });
   }, observerOptions);
-  
+
   // Animate cards and sections
   document.querySelectorAll('.skill-card, .experience-card, .project-card, .blog-card, .section-header').forEach(element => {
     element.classList.add('animate-on-scroll');
@@ -104,32 +220,64 @@ const setupScrollAnimation = () => {
   });
 };
 
+// Function to highlight the active navigation link
+const highlightActiveLink = () => {
+  const currentPage = window.location.pathname.split('/').pop(); // Get the current filename (e.g., "index.html")
+  // Handle the case where the path is just "/" (root) - treat it as index.html
+  const targetPage = currentPage === '' ? 'index.html' : currentPage;
+
+  // Select all navigation links (desktop, mobile, footer)
+  const navLinks = document.querySelectorAll('.desktop-nav .nav-link, .mobile-nav .nav-link, .footer-links a');
+
+  navLinks.forEach(link => {
+    const linkPage = link.getAttribute('href').split('/').pop();
+    // Special case for the root/index page
+    const linkTargetPage = linkPage === '' ? 'index.html' : linkPage;
+
+    // Check if the link's target page matches the current page
+    if (linkTargetPage === targetPage) {
+      link.classList.add('active-link');
+    } else {
+      link.classList.remove('active-link'); // Ensure others are not active
+    }
+  });
+};
+
+
 // Initialize when DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Initialize Lucide icons
   createIcons();
-  
+
   // Apply saved theme
   applyTheme(getTheme());
-  
+
   // Event listeners
-  themeToggle.addEventListener('click', toggleTheme);
-  mobileThemeToggle.addEventListener('click', toggleTheme);
-  menuToggle.addEventListener('click', toggleMobileMenu);
-  scrollToTopBtn.addEventListener('click', scrollToTop);
+  if (themeToggle) themeToggle.addEventListener('click', toggleTheme);
+  if (mobileThemeToggle) mobileThemeToggle.addEventListener('click', toggleTheme);
+  if (menuToggle) menuToggle.addEventListener('click', toggleMobileMenu);
+  if (scrollToTopBtn) scrollToTopBtn.addEventListener('click', scrollToTop);
   window.addEventListener('scroll', handleScroll);
-  
-  // Close mobile menu when clicking on a link
-  document.querySelectorAll('.mobile-nav .nav-link').forEach(link => {
-    link.addEventListener('click', () => {
-      toggleMobileMenu();
+
+  // Close mobile menu when clicking on a link (only if mobile menu exists)
+  if (mobileMenu) {
+    document.querySelectorAll('.mobile-nav .nav-link').forEach(link => {
+      link.addEventListener('click', () => {
+        // Ensure toggleMobileMenu is only called if menuToggle exists
+        if (menuToggle) {
+          toggleMobileMenu();
+        }
+      });
     });
-  });
-  
+  }
+
   // Setup animations
   // Removed call to initResumeSticky()
   setupScrollAnimation();
-  
+
+  // Highlight the active navigation link
+  highlightActiveLink();
+
   // Initial scroll check
   handleScroll();
 });
